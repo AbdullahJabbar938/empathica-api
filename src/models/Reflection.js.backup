@@ -1,0 +1,107 @@
+﻿// const mongoose = require("mongoose");
+
+// const ReflectionSchema = new mongoose.Schema({
+//   user: {
+//     type: mongoose.Schema.Types.ObjectId,
+//     ref: "User",
+//     required: true
+//   },
+//   text: {
+//     type: String,
+//     required: true
+//   },
+//   emotionLabel: {
+//     type: String,
+//     default: "neutral"
+//   },
+//   emotionScore: {
+//     type: Number,
+//     default: 0.5
+//   },
+//   sentiment: {
+//     type: String,
+//     default: "neutral"
+//   },
+//   tags: [String],
+//   date: {
+//     type: Date,
+//     default: Date.now
+//   }
+// });
+
+// module.exports = mongoose.model("Reflection", ReflectionSchema);
+
+const mongoose = require('mongoose');
+
+const ReflectionSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  text: {
+    type: String,
+    required: [true, 'Please provide reflection text'],
+    minlength: [3, 'Reflection must be at least 3 characters'],
+    maxlength: [2000, 'Reflection cannot exceed 2000 characters']
+  },
+  // AI Analysis Results
+  emotionLabel: {
+    type: String,
+    enum: ['joy', 'sadness', 'anger', 'fear', 'surprise', 'love', 'neutral', 'stress', 'anxiety'],
+    default: 'neutral'
+  },
+  emotionScore: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 1
+  },
+  sentiment: {
+    type: String,
+    enum: ['positive', 'negative', 'neutral'],
+    default: 'neutral'
+  },
+  confidence: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 1
+  },
+  // For visualization and filtering
+  tags: [{
+    type: String,
+    enum: ['academic', 'social', 'family', 'work', 'health', 'financial', 'personal']
+  }],
+  date: {
+    type: Date,
+    default: Date.now
+  },
+  // Metadata
+  wordCount: {
+    type: Number,
+    default: 0
+  },
+  analysisVersion: {
+    type: String,
+    default: 'v1.0'
+  }
+});
+
+// Calculate word count before saving
+ReflectionSchema.pre('save', function(next) {
+  if (this.text && this.text.trim()) {
+    // Count words by splitting on whitespace and filtering out empty strings
+    const words = this.text.trim().split(/\s+/).filter(word => word.length > 0);
+    this.wordCount = words.length;
+  } else {
+    this.wordCount = 0;
+  }
+  next();
+});
+
+// Create index for efficient queries
+ReflectionSchema.index({ user: 1, date: -1 });
+ReflectionSchema.index({ user: 1, emotionLabel: 1 });
+
+module.exports = mongoose.model('Reflection', ReflectionSchema);

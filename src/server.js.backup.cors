@@ -1,0 +1,140 @@
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const morgan = require("morgan");
+const helmet = require("helmet");
+const dotenv = require("dotenv");
+
+// Load environment variables
+dotenv.config();
+
+// Initialize Express
+const app = express();
+
+// ========================
+// MIDDLEWARE
+// ========================
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan("dev"));
+
+// ========================
+// ROUTE IMPORTS
+// ========================
+const authRoutes = require("./routes/auth");
+const reflectionRoutes = require("./routes/reflections");
+const insights = require("./routes/insights");
+const resources = require("./routes/resources");
+const stats = require("./routes/stats");
+
+// ========================
+// ROUTES
+// ========================
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Empathica API - Student Mental Wellness Platform",
+    version: "1.0.0",
+    endpoints: [
+      "GET    /api/health",
+      "POST   /api/auth/register",
+      "POST   /api/auth/login",
+      "GET    /api/auth/me",
+      "POST   /api/reflections",
+      "GET    /api/reflections",
+      "GET    /api/reflections/stats",
+      "GET    /api/insights",
+      "GET    /api/resources",
+      "PUT    /api/users/profile"
+    ]
+  });
+});
+
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/reflections", reflectionRoutes);
+app.use("/api/reflections/stats", stats);  // Dashboard statistics
+app.use("/api/insights", insights);        // AI insights
+app.use("/api/resources", resources);      // Mental health resources
+
+// Health endpoint
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Empathica API is running",
+    timestamp: new Date().toISOString(),
+    status: "healthy",
+    uptime: process.uptime()
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Endpoint not found",
+    availableEndpoints: [
+      "/api/health",
+      "/api/auth/register",
+      "/api/auth/login",
+      "/api/auth/me",
+      "/api/reflections",
+      "/api/reflections/stats",
+      "/api/insights",
+      "/api/resources"
+    ]
+  });
+});
+
+// ========================
+// START SERVER
+// ========================
+const PORT = process.env.PORT || 5000;
+
+// Simple MongoDB connection
+const startServer = async () => {
+  try {
+    console.log("?? Starting Empathica API...");
+    
+    // Try to connect to MongoDB
+    if (process.env.MONGODB_URI) {
+      await mongoose.connect(process.env.MONGODB_URI);
+      console.log("? MongoDB Connected");
+    } else {
+      console.log("? Using in-memory data (MONGODB_URI not set)");
+    }
+    
+  } catch (error) {
+    console.log("?? MongoDB not available. Using in-memory data.");
+    console.log("?? To save data persistently, set MONGODB_URI in .env file");
+  }
+  
+  // Start server
+  app.listen(PORT, () => {
+    console.log(`
+============================================================
+🚀 EMPATHICA API SERVER STARTED
+============================================================
+📡 Port: ${PORT}
+🔗 URL: http://localhost:${PORT}
+
+📋 AVAILABLE ENDPOINTS:
+   GET    /api/health          - Health check
+   POST   /api/auth/register   - Register user
+   POST   /api/auth/login      - Login user
+   GET    /api/auth/me         - Get user profile
+   POST   /api/reflections     - Create journal entry
+   GET    /api/reflections     - Get user entries
+   GET    /api/reflections/stats - Dashboard statistics
+   GET    /api/insights        - AI-generated insights
+   GET    /api/resources       - Mental health resources
+
+💡 Test with: curl http://localhost:${PORT}/api/health
+============================================================
+    `);
+  });
+};
+
+startServer();

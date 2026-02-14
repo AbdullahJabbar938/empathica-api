@@ -1,0 +1,378 @@
+// api/src/middleware/validation.js
+const { body, param, query, validationResult } = require('express-validator');
+const { securityUtils } = require('./security');
+
+// Common validation rules
+const commonRules = {
+  email: body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email')
+    .normalizeEmail()
+    .customSanitizer((value) => {
+      // Remove any potentially dangerous characters
+      return value.replace(/[<>]/g, '');
+    }),
+
+  password: body('password')
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+    .custom((value) => {
+      const strength = securityUtils.checkPasswordStrength(value);
+      if (strength.strength === 'weak') {
+        throw new Error('Password is too weak. ' + strength.suggestions);
+      }
+      return true;
+    }),
+
+  name: body('name')
+    .trim()
+    .notEmpty().withMessage('Name is required')
+    .isLength({ min: 2, max: 50 }).withMessage('Name must be between 2 and 50 characters')
+    .escape()
+    .customSanitizer((value) => {
+      // Remove any HTML tags
+      return value.replace(/<[^>]*>/g, '');
+    }),
+
+  text: body('text')
+    .trim()
+    .notEmpty().withMessage('Text is required')
+    .isLength({ min: 10, max: 5000 }).withMessage('Text must be between 10 and 5000 characters')
+    .escape()
+    .custom((value) => {
+      const validation = securityUtils.validateInput(value);
+      if (!validation.valid) {
+        throw new Error(validation.message);
+      }
+      return true;
+    }),
+
+  emotion: body('emotionLabel')
+    .optional()
+    .isIn(['joy', 'sadness', 'anger', 'fear', 'surprise', 'love', 'neutral', 'stress', 'anxiety'])
+    .withMessage('Invalid emotion label')
+    .escape(),
+
+  score: body('emotionScore')
+    .optional()
+    .isFloat({ min: 0, max: 1 })
+    .withMessage('Score must be between 0 and 1')
+    .toFloat(),
+
+  tags: body('tags')
+    .optional()
+    .isArray().withMessage('Tags must be an array')
+    .custom((tags) => {
+      if (tags.length > 10) {
+        throw new Error('Maximum 10 tags allowed');
+      }
+      return true;
+    })
+    .customSanitizer((tags) => {
+      return tags.map(tag => 
+        tag.toString().trim().replace(/[<>]/g, '').substring(0, 20)
+      );
+    }),
+
+  phone: body('phone')
+    .optional()
+    .matches(/^[\+]?[1-9][\d]{0,15}$/)
+    .withMessage('Please provide a valid phone number'),
+
+  bio: body('bio')
+    .optional()
+    .trim()
+    .isLength({ max: 500 }).withMessage('Bio must be less than 500 characters')
+    .escape()
+    .customSanitizer((value) => {
+      return value.replace(/<[^>]*>/g, '');
+    }),
+};
+
+// Validation middleware with enhanced error handling
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  
+  if (!errors.isEmpty()) {
+    const formattedErrors = errors.array().map(err => ({
+      field: err.param,
+      message: err.msg,
+      value: err.value,
+      location: err.location,
+    }));
+
+    // Log validation failures for security monitoring
+    console.warn('[VALIDATION] Validation failed:', {
+      requestId: req.requestId,
+      ip: req.ip,
+      errors: formattedErrors,
+    });
+
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      code: 'VALIDATION_ERROR',
+      details: formattedErrors,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  next();
+};
+
+// Sanitize middleware for additional cleaning
+const sanitize = (req, res, next) => {
+  // Sanitize query parameters
+  if (req.query) {
+    Object.keys(req.query).forEach(key => {
+      if (typeof req.query[key] === 'string') {
+        req.query[key] = req.query[key]
+          .replace(/[<>]/g, '')
+          .trim()
+          .substring(0, 255);
+      }
+    });
+  }
+
+  // Sanitize URL parameters
+  if (req.params) {
+    Object.keys(req.params).forEach(key => {
+      if (typeof req.params[key] === 'string') {
+        req.params[key] = req.params[key]
+          .replace(/[<>]/g, '')
+          .trim();
+      }
+    });
+  }
+
+  next();
+};
+
+// Validation schemas
+const authValidation = {
+  register: [
+    commonRules.name,
+    commonRules.email,
+    commonRules.password,
+    body('confirmPassword')
+      .notEmpty().withMessage('Confirm password is required')
+      .custom((value, { req }) => {
+        if (value !== req.body.password) {
+          throw new Error('Passwords do not match');
+        }
+        return true;
+      }),
+    validate,
+    sanitize,
+  ],
+
+  login: [
+    commonRules.email,
+    body('password').notEmpty().withMessage('Password is required'),
+    validate,
+    sanitize,
+  ],
+
+  resetPassword: [
+    commonRules.email,
+    validate,
+    sanitize,
+  ],
+
+  changePassword: [
+    body('currentPassword').notEmpty().withMessage('Current password is required'),
+    commonRules.password,
+    body('newPassword').custom((value, { req }) => {
+      if (value === req.body.currentPassword) {
+        throw new Error('New password must be different from current password');
+      }
+      return true;
+    }),
+    body('confirmPassword').custom((value, { req }) => {
+      if (value !== req.body.newPassword) {
+        throw new Error('Passwords do not match');
+      }
+      return true;
+    }),
+    validate,
+    sanitize,
+  ],
+};
+
+const reflectionValidation = {
+  create: [
+    commonRules.text,
+    commonRules.emotion,
+    commonRules.score,
+    commonRules.tags,
+    validate,
+    sanitize,
+  ],
+
+  update: [
+    param('id')
+      .isMongoId().withMessage('Invalid reflection ID')
+      .escape(),
+    commonRules.text.optional(),
+    commonRules.emotion.optional(),
+    commonRules.score.optional(),
+    commonRules.tags.optional(),
+    validate,
+    sanitize,
+  ],
+
+  get: [
+    query('page')
+      .optional()
+      .isInt({ min: 1 }).withMessage('Page must be a positive integer')
+      .toInt(),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100')
+      .toInt(),
+    query('sort')
+      .optional()
+      .isIn(['date', '-date', 'emotion', '-emotion']).withMessage('Invalid sort parameter'),
+    query('emotion')
+      .optional()
+      .isIn(['joy', 'sadness', 'anger', 'fear', 'surprise', 'love', 'neutral', 'stress', 'anxiety'])
+      .withMessage('Invalid emotion filter'),
+    query('startDate')
+      .optional()
+      .isISO8601().withMessage('Invalid start date format'),
+    query('endDate')
+      .optional()
+      .isISO8601().withMessage('Invalid end date format'),
+    validate,
+    sanitize,
+  ],
+};
+
+const userValidation = {
+  updateProfile: [
+    commonRules.name.optional(),
+    commonRules.email.optional(),
+    commonRules.phone.optional(),
+    commonRules.bio.optional(),
+    validate,
+    sanitize,
+  ],
+
+  updatePrivacy: [
+    body('dataSharing')
+      .optional()
+      .isIn(['minimal', 'standard', 'full'])
+      .withMessage('Invalid data sharing setting'),
+    body('researchParticipation')
+      .optional()
+      .isBoolean().withMessage('Research participation must be a boolean'),
+    body('analyticsCollection')
+      .optional()
+      .isBoolean().withMessage('Analytics collection must be a boolean'),
+    body('dataRetentionDays')
+      .optional()
+      .isInt({ min: 30, max: 730 })
+      .withMessage('Data retention days must be between 30 and 730'),
+    validate,
+    sanitize,
+  ],
+
+  exportData: [
+    query('format')
+      .optional()
+      .isIn(['json', 'csv', 'pdf', 'all'])
+      .withMessage('Invalid export format'),
+    query('startDate')
+      .optional()
+      .isISO8601().withMessage('Invalid start date format'),
+    query('endDate')
+      .optional()
+      .isISO8601().withMessage('Invalid end date format'),
+    validate,
+    sanitize,
+  ],
+};
+
+// File upload validation
+const fileValidation = {
+  avatar: [
+    body('avatar')
+      .custom((value, { req }) => {
+        if (!req.file) {
+          throw new Error('No file uploaded');
+        }
+        
+        // Check file type
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+        if (!allowedTypes.includes(req.file.mimetype)) {
+          throw new Error('Only JPEG, PNG, and GIF images are allowed');
+        }
+        
+        // Check file size (max 5MB)
+        if (req.file.size > 5 * 1024 * 1024) {
+          throw new Error('File size must be less than 5MB');
+        }
+        
+        return true;
+      }),
+    validate,
+  ],
+};
+
+// API key validation middleware
+const validateApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'] || req.query.apiKey;
+  
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      error: 'API key is required',
+      code: 'API_KEY_REQUIRED',
+    });
+  }
+  
+  // Validate API key format
+  if (!apiKey.startsWith('emp_') || apiKey.length !== 70) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid API key format',
+      code: 'INVALID_API_KEY_FORMAT',
+    });
+  }
+  
+  // Verify API key (in production, this would check against database)
+  const isValid = verifyApiKey(apiKey);
+  
+  if (!isValid) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid API key',
+      code: 'INVALID_API_KEY',
+    });
+  }
+  
+  next();
+};
+
+// Verify API key (mock implementation - replace with database check)
+function verifyApiKey(apiKey) {
+  // In production, this would query the database
+  const validKeys = process.env.VALID_API_KEYS
+    ? process.env.VALID_API_KEYS.split(',')
+    : [];
+  return validKeys.includes(apiKey);
+}
+
+module.exports = {
+  validate,
+  sanitize,
+  authValidation,
+  reflectionValidation,
+  userValidation,
+  fileValidation,
+  validateApiKey,
+  commonRules,
+};

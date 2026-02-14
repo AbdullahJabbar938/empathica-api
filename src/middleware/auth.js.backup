@@ -1,0 +1,23 @@
+﻿// src/routes/auth.js - SIMPLE WORKING VERSION
+const express = require('express');
+const router = express.Router();
+
+// Import what we need
+const { register, login, getMe } = require('../controllers/authController');
+const { protect } = require('../middleware/auth');
+const { registerValidation, loginValidation, validate } = require('../middleware/validation');
+
+// Public routes
+router.post('/register', registerValidation, validate, register);
+router.post('/login', loginValidation, validate, login);
+
+// Protected routes
+router.get('/me', protect, getMe);
+router.post('/logout', protect, (req, res) => {
+  res.json({ success: true, message: 'Logged out' });
+});
+router.post('/refresh-token', protect, (req, res) => {
+  res.json({ success: true, token: 'refreshed-token' });
+});
+
+module.exports = router;

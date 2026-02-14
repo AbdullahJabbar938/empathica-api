@@ -1,0 +1,40 @@
+﻿{
+  "info": {
+    "name": "Empathica API",
+    "description": "Student Mental Wellness Platform - Final Year Project",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "http://localhost:5000/api/health"
+      }
+    },
+    {
+      "name": "Register User",
+      "request": {
+        "method": "POST",
+        "url": "http://localhost:5000/api/auth/register",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"Test Student\",\"email\":\"test@university.edu\",\"password\":\"password123\"}"
+        }
+      }
+    },
+    {
+      "name": "Dashboard Statistics",
+      "request": {
+        "method": "GET",
+        "url": "http://localhost:5000/api/reflections/stats",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer YOUR_TOKEN_HERE"
+          }
+        ]
+      }
+    }
+  ]
+}
